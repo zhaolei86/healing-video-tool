@@ -1,0 +1,147 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>治愈视频创作工具 - 完整版含导出</title>
+</head>
+<body>
+  <h2>治愈视频创作工具（完整版）</h2>
+  <textarea id="idea" rows="4" placeholder="输入创作灵感..."></textarea>
+  <button onclick="generateAll()">开始生成内容</button>
+
+  <h3>关键词</h3>
+  <pre id="keywords"></pre>
+
+  <h3>文案</h3>
+  <pre id="copywriting"></pre>
+
+  <h3>图片与视频素材</h3>
+  <button onclick="refreshPixabay()">🔄 刷新素材</button>
+  <div id="media"></div>
+
+  <h3>背景音乐与环境音推荐</h3>
+  <pre id="music"></pre>
+
+  <h3>剪辑建议</h3>
+  <pre id="editTips"></pre>
+
+  <h3>导出工程</h3>
+  <button onclick="exportOSP()">📦 导出 OpenShot 工程文件</button>
+  <div id="exportStatus"></div>
+
+  <script>
+    let currentKeyword = '';
+    let currentPage = 1;
+    let currentMedia = [];
+
+    async function generateAll() {
+      const idea = document.getElementById('idea').value.trim();
+      if (!idea) return alert('请输入创作灵感');
+
+      document.getElementById('keywords').textContent = '提取中...';
+      document.getElementById('copywriting').textContent = '生成中...';
+      document.getElementById('editTips').textContent = '生成中...';
+      document.getElementById('music').textContent = '推荐中...';
+
+      const deepSeekKey = 'sk-2ea29790547549a9ac24ac4450290112';
+
+      try {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${deepSeekKey}`
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: '你是一个视频创作助手，帮我提取关键词、生成文案、音乐建议、剪辑建议。输出格式如下：关键词：...\n文案：...\n剪辑建议：...\n音乐关键词：...' },
+              { role: 'user', content: idea }
+            ]
+          })
+        });
+
+        const result = (await response.json()).choices[0].message.content;
+
+        const kw = result.match(/关键词[\s：:]*([\s\S]*?)\n/);
+        const txt = result.match(/文案[\s：:]*([\s\S]*?)\n剪辑/);
+        const cut = result.match(/剪辑建议[\s：:]*([\s\S]*?)\n音乐/);
+        const mus = result.match(/音乐关键词[\s：:]*([\s\S]*)/);
+
+        currentKeyword = kw ? kw[1].trim() : '';
+        document.getElementById('keywords').textContent = currentKeyword;
+        document.getElementById('copywriting').textContent = txt ? txt[1].trim() : '';
+        document.getElementById('editTips').textContent = cut ? cut[1].trim() : '';
+        document.getElementById('music').textContent = mus ? mus[1].trim() : '';
+
+        currentPage = 1;
+        searchPixabay(currentKeyword, currentPage);
+      } catch (err) {
+        alert("内容生成失败");
+        console.error(err);
+      }
+    }
+
+    async function searchPixabay(keyword, page) {
+      const key = '50457136-be49db6f26c1db2a62f3940fe';
+      const imgUrl = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(keyword)}&image_type=photo&per_page=3&page=${page}`;
+      const vidUrl = `https://pixabay.com/api/videos/?key=${key}&q=${encodeURIComponent(keyword)}&per_page=2&page=${page}`;
+      const media = document.getElementById('media');
+      currentMedia = [];
+
+      media.innerHTML = '加载中...';
+
+      try {
+        const [imgRes, vidRes] = await Promise.all([fetch(imgUrl), fetch(vidUrl)]);
+        const imgs = await imgRes.json();
+        const vids = await vidRes.json();
+
+        let html = '<h4>图片：</h4>';
+        imgs.hits.forEach(i => {
+          html += `<img src="${i.previewURL}" width="200"><br><a href="${i.largeImageURL}" download>下载图片</a><br>`;
+          currentMedia.push(i.largeImageURL);
+        });
+
+        html += '<h4>视频：</h4>';
+        vids.hits.forEach(v => {
+          html += `<video src="${v.videos.medium.url}" width="300" controls></video><br><a href="${v.videos.medium.url}" download>下载视频</a><br>`;
+          currentMedia.push(v.videos.medium.url);
+        });
+
+        media.innerHTML = html;
+      } catch (err) {
+        media.innerHTML = '加载失败';
+        console.error(err);
+      }
+    }
+
+    function refreshPixabay() {
+      if (!currentKeyword) return alert("请先生成内容");
+      currentPage += 1;
+      searchPixabay(currentKeyword, currentPage);
+    }
+
+    function exportOSP() {
+      const template = {
+        version: "2.0",
+        title: "治愈系视频项目",
+        tracks: currentMedia.map((url, i) => ({
+          type: "video",
+          file: url,
+          start: i * 5,
+          length: 5,
+          track: 0
+        }))
+      };
+      const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = "healing_project.osp";
+      link.click();
+      document.getElementById("exportStatus").textContent = "✅ 已导出 .osp 文件";
+    }
+  </script>
+</body>
+</html>
